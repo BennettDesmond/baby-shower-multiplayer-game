@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const englishWords = new Set(require('an-array-of-english-words'));
 
 const app = express();
 const server = http.createServer(app);
@@ -125,9 +126,15 @@ function scoreAtoZ() {
 
     const scored = {};
     Object.entries(letterAnswers).forEach(([playerId, ans]) => {
+      const wrongLetter = !ans.startsWith(letter);
+      // Multi-word phrases (e.g. "car seat") skip dictionary check
+      const isMultiWord = ans.includes(' ');
+      const notWord = !wrongLetter && !isMultiWord && !englishWords.has(ans);
+      const invalid = wrongLetter ? 'wrong_letter' : notWord ? 'not_word' : false;
       const isUnique = counts[ans] === 1;
-      scored[playerId] = { answer: ans, scored: isUnique };
-      if (isUnique && gameState.players[playerId]) {
+      const getsPoints = !invalid && isUnique;
+      scored[playerId] = { answer: ans, scored: getsPoints, invalid };
+      if (getsPoints && gameState.players[playerId]) {
         gameState.players[playerId].scores.atoz += 10;
         gameState.players[playerId].scores.total += 10;
       }
@@ -137,6 +144,27 @@ function scoreAtoZ() {
   });
 
   gameState.atoz.results = letterResults;
+}
+
+function recalculateAtozScores() {
+  Object.values(gameState.players).forEach((p) => {
+    p.scores.total -= p.scores.atoz;
+    p.scores.atoz = 0;
+  });
+  Object.entries(gameState.atoz.results || {}).forEach(([, letterData]) => {
+    const validCounts = {};
+    Object.values(letterData).forEach((info) => {
+      if (!info.invalid) validCounts[info.answer] = (validCounts[info.answer] || 0) + 1;
+    });
+    Object.entries(letterData).forEach(([pid, info]) => {
+      const isUnique = !info.invalid && validCounts[info.answer] === 1;
+      info.scored = isUnique;
+      if (isUnique && gameState.players[pid]) {
+        gameState.players[pid].scores.atoz += 10;
+        gameState.players[pid].scores.total += 10;
+      }
+    });
+  });
 }
 
 function scoreNamePrice() {
@@ -387,6 +415,20 @@ io.on('connection', (socket) => {
         leaderboard: getSortedLeaderboard(),
       });
     }
+  });
+
+  socket.on('host:atoz-override', ({ playerId, letter }) => {
+    if (socket.id !== hostId || gameState.phase !== 'atoz-results') return;
+    const entry = gameState.atoz.results?.[letter]?.[playerId];
+    if (!entry) return;
+    entry.invalid = entry.invalid ? false : 'host';
+    recalculateAtozScores();
+    emitPhase({
+      phase: 'atoz-results',
+      letterResults: gameState.atoz.results,
+      playerNames: Object.fromEntries(Object.values(gameState.players).map((p) => [p.id, p.name])),
+      leaderboard: getSortedLeaderboard(),
+    });
   });
 
   socket.on('player:word-answer', ({ wordIndex, answer }) => {
