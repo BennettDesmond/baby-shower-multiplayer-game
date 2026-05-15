@@ -1,4 +1,13 @@
 import { useState, useEffect } from 'react';
+
+function getOrCreateSessionId() {
+  let id = localStorage.getItem('babyShower_sessionId');
+  if (!id) {
+    id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('babyShower_sessionId', id);
+  }
+  return id;
+}
 import { socket } from './socket';
 import Lobby from './components/Lobby';
 import WordScramble from './components/WordScramble';
@@ -7,6 +16,7 @@ import NameThatPrice from './components/OverUnder';
 import Bingo from './components/Bingo';
 import Results from './components/Results';
 import FinalLeaderboard from './components/FinalLeaderboard';
+import AdminPanel from './components/AdminPanel';
 
 export default function App() {
   const [phase, setPhase] = useState('connecting');
@@ -15,6 +25,8 @@ export default function App() {
   const [timerLeft, setTimerLeft] = useState(300);
   const [phaseData, setPhaseData] = useState(null);
   const [myCard, setMyCard] = useState(null);
+  const [restoredMarked, setRestoredMarked] = useState(null);
+  const [joined, setJoined] = useState(false);
   const [error, setError] = useState('');
   const [falseAlarm, setFalseAlarm] = useState(false);
 
@@ -22,16 +34,23 @@ export default function App() {
     socket.connect();
 
     socket.on('game:init', () => {
-      setPhase('lobby');
+      const savedName = localStorage.getItem('babyShower_name');
+      if (savedName) {
+        socket.emit('player:join', { name: savedName, sessionId: getOrCreateSessionId() });
+      } else {
+        setPhase('lobby');
+      }
     });
 
     socket.on('player:joined', ({ isHost: h, myCard: card }) => {
       setIsHost(h);
       setMyCard(card);
-      setPhase('lobby');
+      setJoined(true);
+      // phase is set by the game:phase event that always follows
     });
 
     socket.on('player:promoted-host', () => setIsHost(true));
+    socket.on('player:demoted-host', () => setIsHost(false));
 
     socket.on('game:players', (list) => setPlayers(list));
 
@@ -44,7 +63,10 @@ export default function App() {
 
     socket.on('game:timer', ({ timeLeft }) => setTimerLeft(timeLeft));
 
-    socket.on('bingo:card', ({ card }) => setMyCard(card));
+    socket.on('bingo:card', ({ card, markedTiles }) => {
+      setMyCard(card);
+      if (markedTiles) setRestoredMarked(new Set(markedTiles));
+    });
 
     socket.on('bingo:false-alarm', () => {
       setFalseAlarm(true);
@@ -53,16 +75,48 @@ export default function App() {
 
     socket.on('game:error', ({ message }) => setError(message));
 
+    socket.on('game:restart', () => {
+      localStorage.removeItem('babyShower_name');
+      localStorage.removeItem('babyShower_sessionId');
+      setJoined(false);
+      setPhase('lobby');
+      setPhaseData(null);
+      setTimerLeft(300);
+      setMyCard(null);
+      setRestoredMarked(null);
+      setFalseAlarm(false);
+      setIsHost(false);
+    });
+
+    socket.on('player:removed', () => {
+      localStorage.removeItem('babyShower_name');
+      localStorage.removeItem('babyShower_sessionId');
+      setPhase('removed');
+    });
+
     return () => socket.disconnect();
   }, []);
 
   const handleJoin = (name) => {
-    socket.emit('player:join', { name });
+    localStorage.setItem('babyShower_name', name);
+    socket.emit('player:join', { name, sessionId: getOrCreateSessionId() });
   };
 
   const handleStartRound = (round) => {
     socket.emit('host:start-round', { round });
   };
+
+  if (phase === 'removed') {
+    return (
+      <div className="center-screen">
+        <div className="card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 12 }}>👋</div>
+          <h2>You've been removed</h2>
+          <p style={{ color: 'var(--muted)', marginTop: 8 }}>The host removed you from the game.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (phase === 'connecting') {
     return (
@@ -83,10 +137,13 @@ export default function App() {
         <span className="header-star">✦</span>
       </header>
 
+      {isHost && <AdminPanel players={players} />}
+
       {phase === 'lobby' && (
         <Lobby
           players={players}
           isHost={isHost}
+          joined={joined}
           onJoin={handleJoin}
           onStart={() => handleStartRound('word-scramble')}
           error={error}
@@ -216,6 +273,7 @@ export default function App() {
           myCard={myCard}
           isHost={isHost}
           falseAlarm={falseAlarm}
+          initialMarked={restoredMarked}
         />
       )}
 

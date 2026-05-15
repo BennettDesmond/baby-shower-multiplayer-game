@@ -65,12 +65,9 @@ function emitPhase(data) {
 }
 
 function getPlayerList() {
-  return Object.values(gameState.players).map((p) => ({
-    id: p.id,
-    name: p.name,
-    isHost: p.isHost,
-    scores: p.scores,
-  }));
+  return Object.values(gameState.players)
+    .filter((p) => !p.disconnected)
+    .map((p) => ({ id: p.id, name: p.name, isHost: p.isHost, scores: p.scores }));
 }
 
 function startTimer(duration, onTick, onEnd) {
@@ -210,34 +207,72 @@ io.on('connection', (socket) => {
   // Send current state to new connection
   socket.emit('game:init', { phase: gameState.phase });
 
-  socket.on('player:join', ({ name }) => {
-    const isFirst = Object.keys(gameState.players).length === 0 || !hostId;
-    if (isFirst) hostId = socket.id;
+  socket.on('player:join', ({ name, sessionId }) => {
+    // Check if this is a returning session
+    const existing = Object.entries(gameState.players).find(([, p]) => p.sessionId === sessionId);
 
-    gameState.players[socket.id] = {
-      id: socket.id,
-      name: name.trim().slice(0, 20),
-      isHost: isFirst,
-      scores: { wordScramble: 0, atoz: 0, namePrice: 0, bingo: 0, total: 0 },
-    };
-    gameState.bingo.cards[socket.id] = generateBingoCard();
+    if (existing) {
+      const [oldId, player] = existing;
+      // Cancel any pending cleanup timer
+      if (player._cleanupTimer) { clearTimeout(player._cleanupTimer); delete player._cleanupTimer; }
+      player.disconnected = false;
+      // Migrate player to new socket ID
+      delete gameState.players[oldId];
+      player.id = socket.id;
+      gameState.players[socket.id] = player;
+      if (gameState.bingo.cards[oldId]) {
+        gameState.bingo.cards[socket.id] = gameState.bingo.cards[oldId];
+        delete gameState.bingo.cards[oldId];
+      }
+      if (gameState.bingo.markedTiles[oldId]) {
+        gameState.bingo.markedTiles[socket.id] = gameState.bingo.markedTiles[oldId];
+        delete gameState.bingo.markedTiles[oldId];
+      }
+      ['wordScramble', 'atoz', 'namePrice'].forEach((key) => {
+        const store = key === 'namePrice' ? gameState.namePrice.guesses : gameState[key].answers;
+        if (store && store[oldId]) { store[socket.id] = store[oldId]; delete store[oldId]; }
+      });
+      // Restore host role if they were the host
+      if (player.isHost) {
+        if (hostId !== oldId && hostId && gameState.players[hostId]) {
+          gameState.players[hostId].isHost = false;
+          io.to(hostId).emit('player:demoted-host');
+        }
+        hostId = socket.id;
+      } else if (hostId === oldId) {
+        hostId = socket.id;
+      }
 
-    socket.emit('player:joined', {
-      isHost: isFirst,
-      myCard: gameState.bingo.cards[socket.id],
-    });
+      socket.emit('player:joined', { isHost: player.isHost, myCard: gameState.bingo.cards[socket.id] });
+    } else {
+      const isFirst = Object.keys(gameState.players).filter(id => !gameState.players[id].disconnected).length === 0 || !hostId;
+      if (isFirst) hostId = socket.id;
+      gameState.players[socket.id] = {
+        id: socket.id,
+        name: name.trim().slice(0, 20),
+        isHost: isFirst,
+        sessionId,
+        scores: { wordScramble: 0, atoz: 0, namePrice: 0, bingo: 0, total: 0 },
+      };
+      gameState.bingo.cards[socket.id] = generateBingoCard();
+      socket.emit('player:joined', { isHost: isFirst, myCard: gameState.bingo.cards[socket.id] });
+    }
 
-    // Sync late joiners to the current round
+    // Sync to current round
     if (gameState.phase !== 'lobby' && lastPhaseEvent) {
       socket.emit('game:phase', lastPhaseEvent);
       const timerMap = { 'word-scramble': 'wordScramble', atoz: 'atoz', 'name-price': 'namePrice' };
       const timerKey = timerMap[gameState.phase];
-      if (timerKey) {
-        socket.emit('game:timer', { timeLeft: gameState[timerKey].timeLeft });
-      }
+      if (timerKey) socket.emit('game:timer', { timeLeft: gameState[timerKey].timeLeft });
       if (gameState.phase === 'bingo') {
-        socket.emit('bingo:card', { card: gameState.bingo.cards[socket.id] });
+        const marked = [...(gameState.bingo.markedTiles[socket.id] || new Set(['FREE']))];
+        socket.emit('bingo:card', { card: gameState.bingo.cards[socket.id], markedTiles: marked });
       }
+    }
+
+    // Always tell this socket what phase to show
+    if (gameState.phase === 'lobby') {
+      socket.emit('game:phase', { phase: 'lobby' });
     }
 
     io.emit('game:players', getPlayerList());
@@ -412,21 +447,63 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('host:restart-game', () => {
+    if (socket.id !== hostId) return;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    gameState.phase = 'lobby';
+    gameState.wordScramble = { answers: {}, timeLeft: 300, results: null };
+    gameState.atoz = { answers: {}, timeLeft: 300, results: null };
+    gameState.namePrice = { guesses: {}, timeLeft: 300, results: null };
+    gameState.bingo = { cards: {}, markedTiles: {}, winner: null };
+    lastPhaseEvent = null;
+    Object.values(gameState.players).forEach((p) => {
+      p.scores = { wordScramble: 0, atoz: 0, namePrice: 0, bingo: 0, total: 0 };
+      gameState.bingo.cards[p.id] = generateBingoCard();
+    });
+    io.emit('game:restart');
+    io.emit('game:players', getPlayerList());
+  });
+
+  socket.on('host:remove-player', ({ playerId }) => {
+    if (socket.id !== hostId) return;
+    if (!gameState.players[playerId]) return;
+    delete gameState.players[playerId];
+    delete gameState.bingo.cards[playerId];
+    delete gameState.bingo.markedTiles[playerId];
+    delete gameState.wordScramble.answers[playerId];
+    delete gameState.atoz.answers[playerId];
+    delete gameState.namePrice.guesses[playerId];
+    const removedSocket = io.sockets.sockets.get(playerId);
+    if (removedSocket) removedSocket.emit('player:removed');
+    io.emit('game:players', getPlayerList());
+  });
+
   socket.on('disconnect', () => {
     console.log('Disconnected:', socket.id);
-    if (!gameState.players[socket.id]) return;
-    delete gameState.players[socket.id];
-    if (socket.id === hostId) {
-      const ids = Object.keys(gameState.players);
-      if (ids.length > 0) {
-        hostId = ids[0];
-        gameState.players[hostId].isHost = true;
-        io.to(hostId).emit('player:promoted-host');
-      } else {
-        hostId = null;
-      }
-    }
+    const player = gameState.players[socket.id];
+    if (!player) return;
+
+    player.disconnected = true;
     io.emit('game:players', getPlayerList());
+
+    // Give the player 60s to reconnect before cleaning up
+    player._cleanupTimer = setTimeout(() => {
+      if (!gameState.players[socket.id]?.disconnected) return;
+      delete gameState.players[socket.id];
+      delete gameState.bingo.cards[socket.id];
+      delete gameState.bingo.markedTiles[socket.id];
+      if (socket.id === hostId) {
+        const ids = Object.keys(gameState.players).filter((id) => !gameState.players[id].disconnected);
+        if (ids.length > 0) {
+          hostId = ids[0];
+          gameState.players[hostId].isHost = true;
+          io.to(hostId).emit('player:promoted-host');
+        } else {
+          hostId = null;
+        }
+      }
+      io.emit('game:players', getPlayerList());
+    }, 60000);
   });
 });
 

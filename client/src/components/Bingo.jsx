@@ -3,8 +3,8 @@ import { socket } from '../socket';
 
 const HEADERS = ['B', 'I', 'N', 'G', 'O'];
 
-export default function Bingo({ myCard, isHost, falseAlarm }) {
-  const [marked, setMarked] = useState(new Set(['FREE']));
+export default function Bingo({ myCard, isHost, falseAlarm, initialMarked }) {
+  const [marked, setMarked] = useState(() => initialMarked || new Set(['FREE']));
 
   const toggleCell = useCallback((item) => {
     if (item === 'FREE') return;

@@ -631,6 +631,117 @@ input[type="text"]:focus { border-color: var(--blue); background: white; }
 }
 .end-round-btn:hover { opacity: 1; }
 
+/* Admin Panel */
+.admin-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: white;
+  font-size: 1.3rem;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(27, 79, 140, 0.35);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+.admin-fab:hover { transform: scale(1.1); }
+
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.admin-modal {
+  background: white;
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+
+.admin-modal-header {
+  background: var(--navy);
+  color: white;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-modal-header h3 { color: white; margin: 0; }
+
+.admin-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0.8;
+  padding: 4px;
+}
+.admin-close:hover { opacity: 1; }
+
+.admin-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--pale-blue);
+}
+.admin-section:last-child { border-bottom: none; }
+.admin-section h4 { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+.admin-player-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--pale-blue);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.admin-player-name { font-weight: 700; }
+
+.admin-remove-btn {
+  background: none;
+  border: 1px solid var(--red);
+  color: var(--red);
+  border-radius: 50px;
+  padding: 3px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Nunito', sans-serif;
+  transition: background 0.15s;
+}
+.admin-remove-btn:hover { background: var(--red); color: white; }
+
+.confirm-restart {
+  background: #fff3f3;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid #ffcdd2;
+}
+.confirm-restart p { font-weight: 700; color: var(--red); margin: 0; font-size: 0.9rem; }
+
 /* Spinner */
 .spinner {
   width: 40px;

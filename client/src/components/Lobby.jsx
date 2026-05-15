@@ -1,17 +1,13 @@
 import { useState } from 'react';
 
-export default function Lobby({ players, isHost, onJoin, onStart, error }) {
+export default function Lobby({ players, isHost, joined, onJoin, onStart, error }) {
   const [name, setName] = useState('');
-  const [joined, setJoined] = useState(false);
 
   const handleJoin = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
     onJoin(name.trim());
-    setJoined(true);
   };
-
-  const myPlayer = players.find((p) => p.isHost && isHost) || players[players.length - 1];
 
   return (
     <div className="lobby-page">
