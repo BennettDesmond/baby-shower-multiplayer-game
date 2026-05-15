@@ -202,10 +202,22 @@ export default function App() {
                       {entries.map(([pid, info]) => (
                         <span
                           key={pid}
-                          className={`letter-answer-chip ${info.scored ? 'unique' : 'shared'}`}
+                          className={`letter-answer-chip ${info.invalid ? 'invalid' : info.scored ? 'unique' : 'shared'}`}
                         >
                           {playerNames[pid] || pid}: {info.answer}
-                          {info.scored ? ' ✓' : ''}
+                          {info.scored ? ' +10' : ''}
+                          {isHost && info.invalid === 'wrong_letter' ? ' (wrong letter)' : ''}
+                          {isHost && info.invalid === 'not_word' ? ' (not a word)' : ''}
+                          {isHost && info.invalid === 'host' ? ' (disallowed)' : ''}
+                          {isHost && (
+                            <button
+                              className="atoz-override-btn"
+                              title={info.invalid ? 'Approve' : 'Disallow'}
+                              onClick={() => socket.emit('host:atoz-override', { playerId: pid, letter })}
+                            >
+                              {info.invalid ? '✓' : '✕'}
+                            </button>
+                          )}
                         </span>
                       ))}
                     </div>
