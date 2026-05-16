@@ -1,11 +1,15 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { socket } from '../socket';
 import Timer from './Timer';
 
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
 
-export default function AtoZ({ timeLeft, isHost }) {
-  const [answers, setAnswers] = useState({});
+export default function AtoZ({ timeLeft, isHost, initialAnswers }) {
+  const [answers, setAnswers] = useState(() => initialAnswers || {});
+
+  useEffect(() => {
+    if (initialAnswers) setAnswers(initialAnswers);
+  }, [initialAnswers]);
 
   const handleChange = useCallback((letter, value) => {
     setAnswers((prev) => ({ ...prev, [letter]: value }));

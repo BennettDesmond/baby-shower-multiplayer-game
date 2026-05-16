@@ -26,6 +26,7 @@ export default function App() {
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState('');
   const [myWordResults, setMyWordResults] = useState(null);
+  const [restoredAnswers, setRestoredAnswers] = useState(null);
 
   useEffect(() => {
     socket.connect();
@@ -59,6 +60,7 @@ export default function App() {
     socket.on('game:timer', ({ timeLeft }) => setTimerLeft(timeLeft));
 
     socket.on('player:word-scramble-results', ({ myResults }) => setMyWordResults(myResults));
+    socket.on('player:restore-answers', ({ round, answers }) => setRestoredAnswers({ round, answers }));
 
     socket.on('game:error', ({ message }) => setError(message));
 
@@ -71,6 +73,7 @@ export default function App() {
       setTimerLeft(300);
       setIsHost(false);
       setMyWordResults(null);
+      setRestoredAnswers(null);
     });
 
     socket.on('player:removed', () => {
@@ -136,7 +139,7 @@ export default function App() {
       )}
 
       {phase === 'word-scramble' && (
-        <WordScramble timeLeft={timerLeft} words={phaseData?.words || []} isHost={isHost} />
+        <WordScramble timeLeft={timerLeft} words={phaseData?.words || []} isHost={isHost} initialAnswers={restoredAnswers?.round === 'word-scramble' ? restoredAnswers.answers : null} />
       )}
 
       {phase === 'word-scramble-results' && (
@@ -168,7 +171,7 @@ export default function App() {
         />
       )}
 
-      {phase === 'atoz' && <AtoZ timeLeft={timerLeft} isHost={isHost} />}
+      {phase === 'atoz' && <AtoZ timeLeft={timerLeft} isHost={isHost} initialAnswers={restoredAnswers?.round === 'atoz' ? restoredAnswers.answers : null} />}
 
       {phase === 'atoz-results' && (
         <Results
@@ -220,7 +223,7 @@ export default function App() {
       )}
 
       {phase === 'name-price' && (
-        <NameThatPrice timeLeft={timerLeft} items={phaseData?.items || []} isHost={isHost} />
+        <NameThatPrice timeLeft={timerLeft} items={phaseData?.items || []} isHost={isHost} initialAnswers={restoredAnswers?.round === 'name-price' ? restoredAnswers.answers : null} />
       )}
 
       {phase === 'name-price-results' && (

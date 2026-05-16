@@ -298,6 +298,15 @@ io.on('connection', (socket) => {
       const timerMap = { 'word-scramble': 'wordScramble', atoz: 'atoz', 'name-price': 'namePrice' };
       const timerKey = timerMap[gameState.phase];
       if (timerKey) socket.emit('game:timer', { timeLeft: gameState[timerKey].timeLeft });
+
+      // Restore any answers the player already submitted
+      const savedAnswers =
+        gameState.phase === 'word-scramble' ? gameState.wordScramble.answers[socket.id] :
+        gameState.phase === 'atoz' ? gameState.atoz.answers[socket.id] :
+        gameState.phase === 'name-price' ? gameState.namePrice.guesses[socket.id] : null;
+      if (savedAnswers && Object.keys(savedAnswers).length > 0) {
+        socket.emit('player:restore-answers', { round: gameState.phase, answers: savedAnswers });
+      }
     }
 
     // Always tell this socket what phase to show
@@ -589,7 +598,7 @@ io.on('connection', (socket) => {
         }
       }
       io.emit('game:players', getPlayerList());
-    }, 60000);
+    }, 600000);
   });
 });
 

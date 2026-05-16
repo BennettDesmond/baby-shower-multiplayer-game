@@ -1,9 +1,13 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { socket } from '../socket';
 import Timer from './Timer';
 
-export default function NameThatPrice({ timeLeft, items, isHost }) {
-  const [guesses, setGuesses] = useState({});
+export default function NameThatPrice({ timeLeft, items, isHost, initialAnswers }) {
+  const [guesses, setGuesses] = useState(() => initialAnswers || {});
+
+  useEffect(() => {
+    if (initialAnswers) setGuesses(initialAnswers);
+  }, [initialAnswers]);
 
   const handleChange = useCallback((idx, value) => {
     setGuesses((prev) => ({ ...prev, [idx]: value }));

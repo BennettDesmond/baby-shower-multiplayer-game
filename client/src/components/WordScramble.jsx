@@ -1,9 +1,13 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { socket } from '../socket';
 import Timer from './Timer';
 
-export default function WordScramble({ timeLeft, words, isHost }) {
-  const [answers, setAnswers] = useState({});
+export default function WordScramble({ timeLeft, words, isHost, initialAnswers }) {
+  const [answers, setAnswers] = useState(() => initialAnswers || {});
+
+  useEffect(() => {
+    if (initialAnswers) setAnswers(initialAnswers);
+  }, [initialAnswers]);
 
   const handleChange = useCallback((idx, value) => {
     setAnswers((prev) => ({ ...prev, [idx]: value }));
