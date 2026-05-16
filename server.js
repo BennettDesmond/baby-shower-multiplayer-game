@@ -37,15 +37,15 @@ const PRICE_ITEMS = [
   { name: 'Baby Shampoo', actual: 8 },
   { name: 'Baby Monitor', actual: 120 },
   { name: 'Swaddle Blanket', actual: 18 },
+  { name: 'Pack \'n Play', actual: 80 },
+  { name: 'Nursing Pillow (Boppy)', actual: 45 },
+  { name: 'Baby Swing', actual: 85 },
+  { name: 'Diaper Pail', actual: 35 },
+  { name: 'White Noise Machine', actual: 30 },
+  { name: 'High Chair', actual: 90 },
+  { name: 'Baby Nail Kit', actual: 12 },
 ];
 
-const BINGO_ITEMS = [
-  'Stroller', 'Diapers', 'Onesie', 'Pacifier', 'Crib',
-  'Baby Wipes', 'Gift Cards', 'Teether', 'Baby Shoes', 'Sound Machine',
-  'Bottle', 'Swaddle', 'Bib', 'Baby Shampoo',
-  'Blanket', 'Hooded Towel', "Children's Bible", 'Diaper Cream', 'Baby Cups',
-  'Playmat', 'Baby Monitor', 'Burp Cloth', 'Formula', 'Stuffed Animal',
-];
 
 let gameState = {
   phase: 'lobby',
@@ -53,7 +53,6 @@ let gameState = {
   wordScramble: { answers: {}, timeLeft: 300, results: null },
   atoz: { answers: {}, timeLeft: 300, results: null },
   namePrice: { guesses: {}, timeLeft: 300, results: null },
-  bingo: { cards: {}, markedTiles: {}, winner: null },
 };
 
 let hostId = null;
@@ -146,6 +145,24 @@ function scoreAtoZ() {
   gameState.atoz.results = letterResults;
 }
 
+function sendWordScramblePersonalResults() {
+  Object.entries(gameState.players).forEach(([pid, player]) => {
+    if (player.disconnected) return;
+    const s = io.sockets.sockets.get(pid);
+    if (!s) return;
+    const playerAnswers = gameState.wordScramble.answers[pid] || {};
+    const myResults = WORD_SCRAMBLE.map((word, idx) => {
+      const norm = normalizeAnswer(playerAnswers[idx] || '');
+      const correct =
+        norm === word.answer ||
+        (word.answer === 'CUDDLES' && norm === 'CUDDLED') ||
+        (word.answer === 'STRETCHES' && norm === 'STRETCH');
+      return { correct, points: correct ? 10 : 0 };
+    });
+    s.emit('player:word-scramble-results', { myResults });
+  });
+}
+
 function recalculateAtozScores() {
   Object.values(gameState.players).forEach((p) => {
     p.scores.total -= p.scores.atoz;
@@ -193,35 +210,6 @@ function scoreNamePrice() {
   gameState.namePrice.results = itemResults;
 }
 
-function generateBingoCard() {
-  const shuffled = [...BINGO_ITEMS].sort(() => Math.random() - 0.5);
-  const card = [];
-  let itemIdx = 0;
-  for (let row = 0; row < 5; row++) {
-    card.push([]);
-    for (let col = 0; col < 5; col++) {
-      if (row === 2 && col === 2) {
-        card[row].push('FREE');
-      } else {
-        card[row].push(shuffled[itemIdx++]);
-      }
-    }
-  }
-  return card;
-}
-
-function checkBingo(card, calledItems) {
-  const called = new Set([...calledItems, 'FREE']);
-  for (let r = 0; r < 5; r++) {
-    if (card[r].every((c) => called.has(c))) return true;
-  }
-  for (let c = 0; c < 5; c++) {
-    if (card.every((row) => called.has(row[c]))) return true;
-  }
-  if ([0, 1, 2, 3, 4].every((i) => called.has(card[i][i]))) return true;
-  if ([0, 1, 2, 3, 4].every((i) => called.has(card[i][4 - i]))) return true;
-  return false;
-}
 
 function getSortedLeaderboard() {
   return Object.values(gameState.players)
@@ -248,14 +236,6 @@ io.on('connection', (socket) => {
       delete gameState.players[oldId];
       player.id = socket.id;
       gameState.players[socket.id] = player;
-      if (gameState.bingo.cards[oldId]) {
-        gameState.bingo.cards[socket.id] = gameState.bingo.cards[oldId];
-        delete gameState.bingo.cards[oldId];
-      }
-      if (gameState.bingo.markedTiles[oldId]) {
-        gameState.bingo.markedTiles[socket.id] = gameState.bingo.markedTiles[oldId];
-        delete gameState.bingo.markedTiles[oldId];
-      }
       ['wordScramble', 'atoz', 'namePrice'].forEach((key) => {
         const store = key === 'namePrice' ? gameState.namePrice.guesses : gameState[key].answers;
         if (store && store[oldId]) { store[socket.id] = store[oldId]; delete store[oldId]; }
@@ -271,7 +251,7 @@ io.on('connection', (socket) => {
         hostId = socket.id;
       }
 
-      socket.emit('player:joined', { isHost: player.isHost, myCard: gameState.bingo.cards[socket.id] });
+      socket.emit('player:joined', { isHost: player.isHost });
     } else {
       const isFirst = Object.keys(gameState.players).filter(id => !gameState.players[id].disconnected).length === 0 || !hostId;
       if (isFirst) hostId = socket.id;
@@ -280,10 +260,9 @@ io.on('connection', (socket) => {
         name: name.trim().slice(0, 20),
         isHost: isFirst,
         sessionId,
-        scores: { wordScramble: 0, atoz: 0, namePrice: 0, bingo: 0, total: 0 },
+        scores: { wordScramble: 0, atoz: 0, namePrice: 0, total: 0 },
       };
-      gameState.bingo.cards[socket.id] = generateBingoCard();
-      socket.emit('player:joined', { isHost: isFirst, myCard: gameState.bingo.cards[socket.id] });
+      socket.emit('player:joined', { isHost: isFirst });
     }
 
     // Sync to current round
@@ -292,10 +271,6 @@ io.on('connection', (socket) => {
       const timerMap = { 'word-scramble': 'wordScramble', atoz: 'atoz', 'name-price': 'namePrice' };
       const timerKey = timerMap[gameState.phase];
       if (timerKey) socket.emit('game:timer', { timeLeft: gameState[timerKey].timeLeft });
-      if (gameState.phase === 'bingo') {
-        const marked = [...(gameState.bingo.markedTiles[socket.id] || new Set(['FREE']))];
-        socket.emit('bingo:card', { card: gameState.bingo.cards[socket.id], markedTiles: marked });
-      }
     }
 
     // Always tell this socket what phase to show
@@ -320,11 +295,12 @@ io.on('connection', (socket) => {
         () => {
           scoreWordScramble();
           gameState.phase = 'word-scramble-results';
-          emitPhase( {
+          emitPhase({
             phase: 'word-scramble-results',
             answers: WORD_SCRAMBLE.map((w) => ({ scrambled: w.scrambled, answer: w.answer })),
             leaderboard: getSortedLeaderboard(),
           });
+          sendWordScramblePersonalResults();
         }
       );
     } else if (round === 'atoz') {
@@ -370,15 +346,9 @@ io.on('connection', (socket) => {
           });
         }
       );
-    } else if (round === 'bingo') {
-      gameState.phase = 'bingo';
-      gameState.bingo.markedTiles = {};
-      gameState.bingo.winner = null;
-      emitPhase( { phase: 'bingo' });
-      Object.entries(gameState.players).forEach(([pid]) => {
-        const s = io.sockets.sockets.get(pid);
-        if (s) s.emit('bingo:card', { card: gameState.bingo.cards[pid] });
-      });
+    } else if (round === 'final') {
+      gameState.phase = 'final';
+      emitPhase({ phase: 'final', leaderboard: getSortedLeaderboard() });
     }
   });
 
@@ -396,6 +366,7 @@ io.on('connection', (socket) => {
         answers: WORD_SCRAMBLE.map((w) => ({ scrambled: w.scrambled, answer: w.answer })),
         leaderboard: getSortedLeaderboard(),
       });
+      sendWordScramblePersonalResults();
     } else if (gameState.phase === 'atoz') {
       scoreAtoZ();
       gameState.phase = 'atoz-results';
@@ -449,45 +420,6 @@ io.on('connection', (socket) => {
     gameState.namePrice.guesses[socket.id][itemIndex] = guess;
   });
 
-  socket.on('player:mark-tile', ({ item, marked }) => {
-    if (gameState.phase !== 'bingo') return;
-    if (!gameState.bingo.markedTiles[socket.id]) gameState.bingo.markedTiles[socket.id] = new Set(['FREE']);
-    if (marked) gameState.bingo.markedTiles[socket.id].add(item);
-    else gameState.bingo.markedTiles[socket.id].delete(item);
-  });
-
-  socket.on('player:claim-bingo', () => {
-    if (gameState.phase !== 'bingo' || gameState.bingo.winner) return;
-    const card = gameState.bingo.cards[socket.id];
-    if (!card) return;
-    const marked = gameState.bingo.markedTiles[socket.id] || new Set(['FREE']);
-    if (checkBingo(card, [...marked])) {
-      gameState.bingo.winner = socket.id;
-      const winner = gameState.players[socket.id];
-      if (winner) {
-        winner.scores.bingo = 50;
-        winner.scores.total += 50;
-      }
-      gameState.phase = 'final';
-      emitPhase( {
-        phase: 'final',
-        bingoWinner: winner?.name || 'Unknown',
-        leaderboard: getSortedLeaderboard(),
-      });
-    } else {
-      socket.emit('bingo:false-alarm');
-    }
-  });
-
-  socket.on('host:end-bingo', () => {
-    if (socket.id !== hostId || gameState.phase !== 'bingo') return;
-    gameState.phase = 'final';
-    emitPhase( {
-      phase: 'final',
-      bingoWinner: null,
-      leaderboard: getSortedLeaderboard(),
-    });
-  });
 
   socket.on('host:restart-game', () => {
     if (socket.id !== hostId) return;
@@ -496,11 +428,9 @@ io.on('connection', (socket) => {
     gameState.wordScramble = { answers: {}, timeLeft: 300, results: null };
     gameState.atoz = { answers: {}, timeLeft: 300, results: null };
     gameState.namePrice = { guesses: {}, timeLeft: 300, results: null };
-    gameState.bingo = { cards: {}, markedTiles: {}, winner: null };
     lastPhaseEvent = null;
     Object.values(gameState.players).forEach((p) => {
-      p.scores = { wordScramble: 0, atoz: 0, namePrice: 0, bingo: 0, total: 0 };
-      gameState.bingo.cards[p.id] = generateBingoCard();
+      p.scores = { wordScramble: 0, atoz: 0, namePrice: 0, total: 0 };
     });
     io.emit('game:restart');
     io.emit('game:players', getPlayerList());
@@ -510,8 +440,6 @@ io.on('connection', (socket) => {
     if (socket.id !== hostId) return;
     if (!gameState.players[playerId]) return;
     delete gameState.players[playerId];
-    delete gameState.bingo.cards[playerId];
-    delete gameState.bingo.markedTiles[playerId];
     delete gameState.wordScramble.answers[playerId];
     delete gameState.atoz.answers[playerId];
     delete gameState.namePrice.guesses[playerId];
@@ -532,8 +460,6 @@ io.on('connection', (socket) => {
     player._cleanupTimer = setTimeout(() => {
       if (!gameState.players[socket.id]?.disconnected) return;
       delete gameState.players[socket.id];
-      delete gameState.bingo.cards[socket.id];
-      delete gameState.bingo.markedTiles[socket.id];
       if (socket.id === hostId) {
         const ids = Object.keys(gameState.players).filter((id) => !gameState.players[id].disconnected);
         if (ids.length > 0) {

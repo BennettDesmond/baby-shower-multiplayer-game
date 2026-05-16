@@ -1,7 +1,7 @@
 const MEDALS = ['🥇', '🥈', '🥉'];
 const ROW_CLASSES = ['first', 'second', 'third'];
 
-export default function FinalLeaderboard({ leaderboard, bingoWinner }) {
+export default function FinalLeaderboard({ leaderboard }) {
   const winner = leaderboard[0];
 
   return (
@@ -18,20 +18,6 @@ export default function FinalLeaderboard({ leaderboard, bingoWinner }) {
         </div>
       )}
 
-      {bingoWinner && (
-        <div
-          style={{
-            background: 'var(--pale-blue)',
-            borderRadius: 'var(--radius)',
-            padding: '12px 20px',
-            marginBottom: 16,
-            fontWeight: 700,
-          }}
-        >
-          🎯 Bingo winner: {bingoWinner}!
-        </div>
-      )}
-
       <div className="leaderboard">
         {leaderboard.map((player, i) => (
           <div key={player.id} className={`lb-row ${ROW_CLASSES[i] || ''}`}>
@@ -43,7 +29,6 @@ export default function FinalLeaderboard({ leaderboard, bingoWinner }) {
                 <span className="score-chip" title="Word Scramble">W: {player.scores.wordScramble}</span>
                 <span className="score-chip" title="A-Z">A: {player.scores.atoz}</span>
                 <span className="score-chip" title="Name That Price">P: {player.scores.namePrice}</span>
-                <span className="score-chip" title="Bingo">B: {player.scores.bingo}</span>
               </div>
             </div>
           </div>

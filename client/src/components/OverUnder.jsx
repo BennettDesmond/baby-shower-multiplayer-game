@@ -16,7 +16,7 @@ export default function NameThatPrice({ timeLeft, items, isHost }) {
     <div className="page">
       <div className="section-title">
         <h2>💰 Name That Price!</h2>
-        <p>Guess the actual price of each baby item. Closest guess wins!</p>
+        <p>Guess the average retail price of each item. Closest guess wins!</p>
       </div>
 
       <Timer timeLeft={timeLeft} />

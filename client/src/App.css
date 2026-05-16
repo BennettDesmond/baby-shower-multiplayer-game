@@ -534,7 +534,9 @@ input[type="text"]:focus { border-color: var(--blue); background: white; }
 
 .scrambled { font-weight: 900; color: var(--navy); letter-spacing: 1px; font-size: 0.9rem; }
 .arrow { color: var(--muted); }
-.answer { font-weight: 700; color: var(--green); }
+.answer { font-weight: 700; color: var(--text); }
+.answer.correct { color: var(--green); }
+.answer.incorrect { color: var(--red); }
 
 /* A-Z Results */
 .atoz-results { margin-top: 20px; max-height: 400px; overflow-y: auto; }

@@ -70,7 +70,7 @@ export default function Lobby({ players, isHost, joined, onJoin, onStart, error 
             ✨ You're the host! Start the game when everyone has joined.
           </p>
           <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: 16 }}>
-            4 rounds: Word Scramble → A-Z → Name That Price → Bingo
+            3 rounds: Word Scramble → A-Z → Name That Price
           </p>
           <button
             className="btn btn-success"

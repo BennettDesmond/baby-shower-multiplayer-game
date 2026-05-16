@@ -13,7 +13,6 @@ import Lobby from './components/Lobby';
 import WordScramble from './components/WordScramble';
 import AtoZ from './components/AtoZ';
 import NameThatPrice from './components/OverUnder';
-import Bingo from './components/Bingo';
 import Results from './components/Results';
 import FinalLeaderboard from './components/FinalLeaderboard';
 import AdminPanel from './components/AdminPanel';
@@ -24,11 +23,9 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [timerLeft, setTimerLeft] = useState(300);
   const [phaseData, setPhaseData] = useState(null);
-  const [myCard, setMyCard] = useState(null);
-  const [restoredMarked, setRestoredMarked] = useState(null);
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState('');
-  const [falseAlarm, setFalseAlarm] = useState(false);
+  const [myWordResults, setMyWordResults] = useState(null);
 
   useEffect(() => {
     socket.connect();
@@ -42,9 +39,8 @@ export default function App() {
       }
     });
 
-    socket.on('player:joined', ({ isHost: h, myCard: card }) => {
+    socket.on('player:joined', ({ isHost: h }) => {
       setIsHost(h);
-      setMyCard(card);
       setJoined(true);
       // phase is set by the game:phase event that always follows
     });
@@ -58,20 +54,11 @@ export default function App() {
       setPhase(data.phase);
       setPhaseData(data);
       setTimerLeft(300);
-      setFalseAlarm(false);
     });
 
     socket.on('game:timer', ({ timeLeft }) => setTimerLeft(timeLeft));
 
-    socket.on('bingo:card', ({ card, markedTiles }) => {
-      setMyCard(card);
-      if (markedTiles) setRestoredMarked(new Set(markedTiles));
-    });
-
-    socket.on('bingo:false-alarm', () => {
-      setFalseAlarm(true);
-      setTimeout(() => setFalseAlarm(false), 3000);
-    });
+    socket.on('player:word-scramble-results', ({ myResults }) => setMyWordResults(myResults));
 
     socket.on('game:error', ({ message }) => setError(message));
 
@@ -82,10 +69,8 @@ export default function App() {
       setPhase('lobby');
       setPhaseData(null);
       setTimerLeft(300);
-      setMyCard(null);
-      setRestoredMarked(null);
-      setFalseAlarm(false);
       setIsHost(false);
+      setMyWordResults(null);
     });
 
     socket.on('player:removed', () => {
@@ -165,13 +150,18 @@ export default function App() {
             <div className="answer-key">
               <h3>Answer Key</h3>
               <div className="answer-grid">
-                {(phaseData?.answers || []).map((a, i) => (
-                  <div key={i} className="answer-item">
-                    <span className="scrambled">{a.scrambled}</span>
-                    <span className="arrow">→</span>
-                    <span className="answer">{a.answer}</span>
-                  </div>
-                ))}
+                {(phaseData?.answers || []).map((a, i) => {
+                  const result = myWordResults?.[i];
+                  return (
+                    <div key={i} className="answer-item">
+                      <span className="scrambled">{a.scrambled}</span>
+                      <span className="arrow">→</span>
+                      <span className={`answer ${result ? (result.correct ? 'correct' : 'incorrect') : ''}`}>
+                        {a.answer}{result?.correct ? ` +${result.points}` : ''}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           }
@@ -238,8 +228,8 @@ export default function App() {
           title="Name That Price Results"
           leaderboard={phaseData?.leaderboard || []}
           isHost={isHost}
-          onNext={() => handleStartRound('bingo')}
-          nextLabel="Start Bingo Round"
+          onNext={() => handleStartRound('final')}
+          nextLabel="View Final Leaderboard"
           extra={
             <div className="over-under-reveal">
               <h3>Actual Prices &amp; Guesses</h3>
@@ -267,7 +257,7 @@ export default function App() {
                             }}
                           >
                             {playerNames[g.playerId] || g.playerId}: ${g.guess}
-                            {isWinner ? ' ✓' : ''}
+                            {isWinner ? ' +10' : ''}
                           </span>
                         );
                       })}
@@ -280,20 +270,8 @@ export default function App() {
         />
       )}
 
-      {phase === 'bingo' && (
-        <Bingo
-          myCard={myCard}
-          isHost={isHost}
-          falseAlarm={falseAlarm}
-          initialMarked={restoredMarked}
-        />
-      )}
-
       {phase === 'final' && (
-        <FinalLeaderboard
-          leaderboard={phaseData?.leaderboard || []}
-          bingoWinner={phaseData?.bingoWinner}
-        />
+        <FinalLeaderboard leaderboard={phaseData?.leaderboard || []} />
       )}
     </div>
   );
