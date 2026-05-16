@@ -59,9 +59,35 @@ let hostId = null;
 let timerInterval = null;
 let lastPhaseEvent = null;
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'stablein2025';
+const adminSockets = new Set();
+
+function broadcastAdminState() {
+  if (adminSockets.size === 0) return;
+  const timerMap = { 'word-scramble': 'wordScramble', atoz: 'atoz', 'name-price': 'namePrice' };
+  const timerKey = timerMap[gameState.phase];
+  const state = {
+    phase: gameState.phase,
+    timeLeft: timerKey ? gameState[timerKey].timeLeft : null,
+    hostId,
+    players: Object.values(gameState.players).map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHost: p.isHost,
+      disconnected: !!p.disconnected,
+      scores: { ...p.scores },
+    })),
+  };
+  adminSockets.forEach((sid) => {
+    const s = io.sockets.sockets.get(sid);
+    if (s) s.emit('admin:state', state);
+  });
+}
+
 function emitPhase(data) {
   lastPhaseEvent = data;
   io.emit('game:phase', data);
+  broadcastAdminState();
 }
 
 function getPlayerList() {
@@ -76,6 +102,7 @@ function startTimer(duration, onTick, onEnd) {
   timerInterval = setInterval(() => {
     timeLeft--;
     onTick(timeLeft);
+    broadcastAdminState();
     if (timeLeft <= 0) {
       clearInterval(timerInterval);
       timerInterval = null;
@@ -279,6 +306,7 @@ io.on('connection', (socket) => {
     }
 
     io.emit('game:players', getPlayerList());
+    broadcastAdminState();
   });
 
   socket.on('host:start-round', ({ round }) => {
@@ -446,9 +474,99 @@ io.on('connection', (socket) => {
     const removedSocket = io.sockets.sockets.get(playerId);
     if (removedSocket) removedSocket.emit('player:removed');
     io.emit('game:players', getPlayerList());
+    broadcastAdminState();
+  });
+
+  // ── Admin events ─────────────────────────────────────────────
+  socket.on('admin:auth', ({ password }) => {
+    if (password === ADMIN_PASSWORD) {
+      adminSockets.add(socket.id);
+      socket.emit('admin:auth-ok');
+      broadcastAdminState();
+    } else {
+      socket.emit('admin:auth-fail');
+    }
+  });
+
+  socket.on('admin:restart', () => {
+    if (!adminSockets.has(socket.id)) return;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    gameState.phase = 'lobby';
+    gameState.wordScramble = { answers: {}, timeLeft: 300, results: null };
+    gameState.atoz = { answers: {}, timeLeft: 300, results: null };
+    gameState.namePrice = { guesses: {}, timeLeft: 300, results: null };
+    lastPhaseEvent = null;
+    Object.values(gameState.players).forEach((p) => {
+      p.scores = { wordScramble: 0, atoz: 0, namePrice: 0, total: 0 };
+    });
+    io.emit('game:restart');
+    io.emit('game:players', getPlayerList());
+    broadcastAdminState();
+  });
+
+  socket.on('admin:remove-player', ({ playerId }) => {
+    if (!adminSockets.has(socket.id)) return;
+    if (!gameState.players[playerId]) return;
+    delete gameState.players[playerId];
+    delete gameState.wordScramble.answers[playerId];
+    delete gameState.atoz.answers[playerId];
+    delete gameState.namePrice.guesses[playerId];
+    const removedSocket = io.sockets.sockets.get(playerId);
+    if (removedSocket) removedSocket.emit('player:removed');
+    io.emit('game:players', getPlayerList());
+    broadcastAdminState();
+  });
+
+  socket.on('admin:set-host', ({ playerId }) => {
+    if (!adminSockets.has(socket.id)) return;
+    const target = gameState.players[playerId];
+    if (!target || target.disconnected) return;
+    if (hostId && gameState.players[hostId]) {
+      gameState.players[hostId].isHost = false;
+      io.to(hostId).emit('player:demoted-host');
+    }
+    hostId = playerId;
+    target.isHost = true;
+    io.to(playerId).emit('player:promoted-host');
+    io.emit('game:players', getPlayerList());
+    broadcastAdminState();
+  });
+
+  socket.on('admin:end-round', () => {
+    if (!adminSockets.has(socket.id)) return;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (gameState.phase === 'word-scramble') {
+      scoreWordScramble();
+      gameState.phase = 'word-scramble-results';
+      emitPhase({
+        phase: 'word-scramble-results',
+        answers: WORD_SCRAMBLE.map((w) => ({ scrambled: w.scrambled, answer: w.answer })),
+        leaderboard: getSortedLeaderboard(),
+      });
+      sendWordScramblePersonalResults();
+    } else if (gameState.phase === 'atoz') {
+      scoreAtoZ();
+      gameState.phase = 'atoz-results';
+      emitPhase({
+        phase: 'atoz-results',
+        letterResults: gameState.atoz.results,
+        playerNames: Object.fromEntries(Object.values(gameState.players).map((p) => [p.id, p.name])),
+        leaderboard: getSortedLeaderboard(),
+      });
+    } else if (gameState.phase === 'name-price') {
+      scoreNamePrice();
+      gameState.phase = 'name-price-results';
+      emitPhase({
+        phase: 'name-price-results',
+        itemResults: gameState.namePrice.results,
+        playerNames: Object.fromEntries(Object.values(gameState.players).map((p) => [p.id, p.name])),
+        leaderboard: getSortedLeaderboard(),
+      });
+    }
   });
 
   socket.on('disconnect', () => {
+    adminSockets.delete(socket.id);
     console.log('Disconnected:', socket.id);
     const player = gameState.players[socket.id];
     if (!player) return;
